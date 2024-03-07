@@ -7,25 +7,31 @@ import sklearn.metrics as sk_metrics
 import tempfile
 import os
 
-# Preset matplotlib figure sizes.
-matplotlib.rcParams['figure.figsize'] = [9, 6]
 
-print(tf.__version__)
-# To make the results reproducible, set the random seed value.
-tf.random.set_seed(22)
+def main():
+    # Preset matplotlib figure sizes.
+    matplotlib.rcParams['figure.figsize'] = [9, 6]
 
-url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data'
+    print(tf.__version__)
+    # To make the results reproducible, set the random seed value.
+    tf.random.set_seed(22)
 
-features = ['radius', 'texture', 'perimeter', 'area', 'smoothness', 'compactness',
-            'concavity', 'concave_poinits', 'symmetry', 'fractal_dimension']
-column_names = ['id', 'diagnosis']
+    url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data'
 
-for attr in ['mean', 'ste', 'largest']:
-  for feature in features:
-    column_names.append(feature + "_" + attr)
+    features = ['radius', 'texture', 'perimeter', 'area', 'smoothness', 'compactness',
+                'concavity', 'concave_poinits', 'symmetry', 'fractal_dimension']
+    column_names = ['id', 'diagnosis']
 
-dataset = pd.read_csv(url, names=column_names)
-# print(dataset.info())
-print(dataset.head())
-train_dataset = dataset.sample(frac=0.75, random_state=1)
-len(train_dataset)
+    for attr in ['mean', 'ste', 'largest']:
+        for feature in features:
+            column_names.append(feature + "_" + attr)
+
+    dataset = pd.read_csv(url, names=column_names)
+    # print(dataset.info())
+    print(dataset.head())
+    train_dataset = dataset.sample(frac=0.75, random_state=1)
+    len(train_dataset)
+
+
+if __name__ == '__main__':
+    main()

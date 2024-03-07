@@ -1,3 +1,4 @@
+from tqdm import tqdm
 import numpy as np
 import re
 
@@ -6,126 +7,209 @@ data = """
 
 
 # 활성화 함수
-def sigmoid(input):
-    return 1 / (1 + np.exp(-input))
+def sigmoid(x):
+    return 1 / (1 + np.exp(-x))
 
 
-def sigmoid_derivative(input):
-    return input * (1 - input)
+def sigmoid_derivative(x):
+    return x * (1 - x)
 
 
-def tanh(input, derivative=False):
-    return np.tanh(input)
+def tanh(x, derivative=False):
+    return np.tanh(x)
 
 
-def tanh_derivative(input):
-    return 1 - input ** 2
+def tanh_derivative(x):
+    return 1 - x ** 2
 
 
-def softmax(input):
-    return np.exp(input) / np.sum(np.exp(input))
+def softmax(x):
+    return np.exp(x) / np.sum(np.exp(x))
 
 
-class LSTM(object):
-    def __init__(self, source, hidden_dim, seq_length, learning_rate=0.01):
-        np.random.seed(223345)
-        self.word_to_idx = None
-        self.idx_to_word = None
-        self.vocab = None
-        self.tokens = None
-        self.data_preprocessing(source)
-        self.hidden_size = hidden_dim
-        self.input_size = self.output_size = len(self.vocab)
-        self.seq_length = seq_length
-        self.W_xh = np.random.randn(self.input_size, self.hidden_size) * 0.01
-        self.W_hh = np.random.randn(self.hidden_size, self.hidden_size) * 0.01
-        self.W_hy = np.random.randn(self.hidden_size, self.output_size) * 0.01
-        self.b_h = np.zeros((1, self.hidden_size))
-        self.b_y = np.zeros((1, self.output_size))
+def data_preprocessing(src):
+    src = re.sub('[^가-힣]', ' ', src)
+    t = data.split()
+    vocab = list(set(t))
+    size = len(vocab)
+
+    word_to_ix = {word: i for i, word in enumerate(vocab)}
+    ix_to_word = {i: word for i, word in enumerate(vocab)}
+
+    return t, size, word_to_ix, ix_to_word
+
+
+tokens, vocab_size, Word_to_ix, ix_to_Word = data_preprocessing(data)
+
+
+class LSTM:
+    def __init__(self, input_size, hidden_size, output_size, num_epochs, learning_rate):
+        # Hyperparameters
         self.learning_rate = learning_rate
+        self.hidden_size = hidden_size
+        self.num_epochs = num_epochs
 
-    def data_preprocessing(self, source):
-        source = re.sub(r'[^가-힣]', '', source)
-        self.tokens = data.split()
-        self.vocab = list(set(self.tokens))
-        self.word_to_idx = {w: i for i, w in enumerate(self.vocab)}
-        self.idx_to_word = {i: w for i, w in enumerate(self.vocab)}
+        # Forget Gate
+        self.Wf = np.random.randn(hidden_size, input_size)*0.1
+        self.bf = np.zeros((hidden_size, 1))
 
-    def one_hot_encoding(self, idx):
-        one_hot_vector = np.zeros((1, self.input_size))
-        one_hot_vector[0][idx] = 1
-        return one_hot_vector
+        # Input Gate
+        self.Wi = np.random.randn(hidden_size, input_size)*0.1
+        self.bi = np.zeros((hidden_size, 1))
 
-    def forward(self, inputs, target, h_prev):
-        xs, hs, ys, ps = {}, {}, {}, {}
-        hs[-1] = np.copy(h_prev)
-        loss = 0
-        for t in range(self.seq_length):
-            xs[t] = self.one_hot_encoding(inputs[t])
-            hs[t] = np.tanh(np.dot(xs[t], self.W_xh) + np.dot(hs[t - 1], self.W_hh) + self.b_h)
-            ys[t] = np.dot(hs[t], self.W_hy) + self.b_y
-            ps[t] = np.exp(ys[t]) / np.sum(np.exp(ys[t]))
-            loss += -np.log(ps[t][0][target[t]])
-        return loss, ps, hs, xs
+        # Candidate Gate
+        self.Wc = np.random.randn(hidden_size, input_size)*0.1
+        self.bc = np.zeros((hidden_size, 1))
 
-    def predict(self, word, length):
-        h_prev = np.zeros((1, self.hidden_size))
-        x = self.one_hot_encoding(self.word_to_idx[word])
-        idxs = []
-        for t in range(length):
-            h = np.tanh(np.dot(x, self.W_xh) + np.dot(h_prev, self.W_hh) + self.b_h)
-            y = np.dot(h, self.W_hy) + self.b_y
-            p = np.exp(y) / np.sum(np.exp(y))
-            idx = np.random.choice(range(self.input_size), p=p.ravel())
-            idxs.append(idx)
-            x = self.one_hot_encoding(idx)
-            h_prev = h
-        return ' '.join([self.idx_to_word[i] for i in idxs])
+        # Output Gate
+        self.Wo = np.random.randn(hidden_size, input_size)*0.1
+        self.bo = np.zeros((hidden_size, 1))
 
-    ## backpropagation
-    def backward(self, ps, hs, xs, target):
-        dW_xh, dW_hh, dW_hy = np.zeros_like(self.W_xh), np.zeros_like(self.W_hh), np.zeros_like(self.W_hy)
-        db_h, db_y = np.zeros_like(self.b_h), np.zeros_like(self.b_y)
-        dh_next = np.zeros_like(hs[0])
-        for t in reversed(range(self.seq_length)):
-            dy = np.copy(ps[t])
-            dy[0][target[t]] -= 1
-            dW_hy += np.dot(hs[t].T, dy)
-            db_y += dy
-            dh = np.dot(dy, self.W_hy.T) + dh_next
-            dh_raw = (1 - hs[t] * hs[t]) * dh
-            db_h += dh_raw
-            dW_xh += np.dot(xs[t].T, dh_raw)
-            dW_hh += np.dot(hs[t - 1].T, dh_raw)
-            dh_next = np.dot(dh_raw, self.W_hh.T)
-        for dparam in [dW_xh, dW_hh, dW_hy, db_h, db_y]:
-            np.clip(dparam, -5, 5, out=dparam)
-        return dW_xh, dW_hh, dW_hy, db_h, db_y
+        # Final Gate
+        self.Wy = np.random.randn(output_size, hidden_size)
+        self.by = np.zeros((output_size, 1))
 
-    def train(self, epochs):
-        for epoch in range(epochs):
-            h_prev = np.zeros((1, self.hidden_size))
-            loss = 0.
-            for i in range(len(self.tokens) // self.seq_length):
-                inputs = [self.word_to_idx[w] for w in self.tokens[i * self.seq_length:(i + 1) * self.seq_length]]
-                target = [self.word_to_idx[w] for w in
-                          self.tokens[i * self.seq_length + 1:(i + 1) * self.seq_length + 1]]
-                loss, ps, hs, xs = self.forward(inputs, target, h_prev)
-                dW_xh, dW_hh, dW_hy, db_h, db_y = self.backward(ps, hs, xs, target)
-                for param, dparam in zip([self.W_xh, self.W_hh, self.W_hy, self.b_h, self.b_y],
-                                         [dW_xh, dW_hh, dW_hy, db_h, db_y]):
-                    param += -self.learning_rate * dparam
-                h_prev = hs[self.seq_length - 1]
-            if epoch % 100 == 0:
-                print('epoch: %d, loss: %f' % (epoch, loss))
+    # 네트워크 메모리 리셋
+    def reset(self):
+        self.X = {}
+
+        self.HS = {-1: np.zeros((self.hidden_size, 1))}
+        self.CS = {-1: np.zeros((self.hidden_size, 1))}
+
+        self.C = {}
+        self.O = {}
+        self.F = {}
+        self.I = {}
+        self.outputs = {}
+
+    # Forward 순전파
+    def forward(self, inputs):
+        # self.reset()
+        x = {}
+        outputs = []
+        for t in range(len(inputs)):
+            x[t] = np.zeros((vocab_size , 1))
+            x[t][inputs[t]] = 1  # 각각의 Word에 대한 one hot coding
+            self.X[t] = np.concatenate((self.HS[t - 1], x[t]))
+
+            self.F[t] = sigmoid(np.dot(self.Wf, self.X[t]) + self.bf)
+            self.I[t] = sigmoid(np.dot(self.Wi, self.X[t]) + self.bi)
+            self.C[t] = tanh(np.dot(self.Wc, self.X[t]) + self.bc)
+            self.O[t] = sigmoid(np.dot(self.Wo, self.X[t]) + self.bo)
+
+            self.CS[t] = self.F[t] * self.CS[t - 1] + self.I[t] * self.C[t]
+            self.HS[t] = self.O[t] * tanh(self.CS[t])
+
+            outputs += [np.dot(self.Wy, self.HS[t]) + self.by]
+
+        return outputs
+
+    # 역전파
+    def backward(self, errors, inputs):
+        dLdWf, dLdbf = 0, 0
+        dLdWi, dLdbi = 0, 0
+        dLdWc, dLdbc = 0, 0
+        dLdWo, dLdbo = 0, 0
+        dLdWy, dLdby = 0, 0
+
+        dh_next, dc_next = np.zeros_like(self.HS[0]), np.zeros_like(self.CS[0])
+        for t in reversed(range(len(inputs))):
+            error = errors[t]
+
+            # Final Gate Weights and Biases Errors
+            dLdWy += np.dot(error, self.HS[t].T)         #𝜕𝐿/𝜕𝑊𝑦
+            dLdby += error                               #𝜕𝐿/𝜕b𝑦 = (𝜕𝐿/𝜕z_t)(𝜕z_t/𝜕b𝑦) = error x 1 (Zt = WyHSt + by)
+
+            # Hidden State Error
+            dLdHS = np.dot(self.Wy.T, error) + dh_next    #𝜕𝐿/𝜕𝐻𝑆
+
+            # Output Gate Weights and Biases Errors
+            dLdo = tanh(self.CS[t]) * dLdHS * sigmoid_derivative(self.O[t])
+            dLdWo += np.dot(dLdo, inputs[t].T)
+            dLdbo += dLdo
+
+            # Cell State Error
+            dLdCS = tanh_derivative(tanh(self.CS[t])) * self.O[t] * dLdHS + dc_next
+
+            # Forget Gate Weights and Biases Errors
+            dLdf = dLdCS * self.CS[t - 1] * sigmoid_derivative(self.F[t])
+            dLdWf += np.dot(dLdf, inputs[t].T)
+            dLdbf += dLdf
+
+            # Input Gate Weights and Biases Errors
+            dLdi = dLdCS * self.C[t] * sigmoid_derivative(self.I[t])
+            dLdWi += np.dot(dLdi, inputs[t].T)
+            dLdbi += dLdi
+
+            # Candidate Gate Weights and Biases Errors
+            dLdc = dLdCS * self.I[t] * tanh_derivative(self.C[t])
+            dLdWc += np.dot(dLdc, inputs[t].T)
+            dLdbc += dLdc
+
+            # Concatenated Input Error (Sum of Error at Each Gate!)
+            d_z = np.dot(self.Wf.T, dLdf) + np.dot(self.Wi.T, dLdi) + np.dot(self.Wc.T, dLdc) + np.dot(self.Wo.T, dLdo)
+
+            # Error of Hidden State and Cell State at Next Time Step
+            dh_next = d_z[:self.hidden_size, :]
+            dc_next = self.F[t] * dLdCS
+
+        for d_ in (dLdWf, dLdbf, dLdWi, dLdbi, dLdWc, dLdbc, dLdWo, dLdbo, dLdWy, dLdby):
+            np.clip(d_, -1, 1, out=d_)
+
+
+        self.Wf += dLdWf * self.learning_rate * (-1)
+        self.bf += dLdbf * self.learning_rate * (-1)
+
+        self.Wi += dLdWi * self.learning_rate * (-1)
+        self.bi += dLdbi * self.learning_rate * (-1)
+
+        self.Wc += dLdWc * self.learning_rate * (-1)
+        self.bc += dLdbc * self.learning_rate * (-1)
+
+        self.Wo += dLdWo * self.learning_rate * (-1)
+        self.bo += dLdbo * self.learning_rate * (-1)
+
+        self.Wy += dLdWy * self.learning_rate * (-1)
+        self.by += dLdby * self.learning_rate * (-1)
+
+    # Train
+    def train(self, inputs, labels):
+        for _ in tqdm(range(self.num_epochs)):
+            self.reset()
+            input_idx = [Word_to_ix[input] for input in inputs]
+            predictions = self.forward(input_idx)
+
+            errors = []
+            for t in range(len(predictions)):
+                errors += [softmax(predictions[t])]
+                errors[-1][Word_to_ix[labels[t]]] -= 1
+
+            self.backward(errors, self.X)
+
+    def test(self, inputs, labels):
+        accuracy = 0
+        probabilities = self.forward([Word_to_ix[input] for input in inputs])
+
+        gt = ''
+        output = '우리 '
+        for q in range(len(labels)):
+            prediction = ix_to_Word[np.argmax(softmax(probabilities[q].reshape(-1)))]
+            gt += inputs[q] + ' '
+            output += prediction + ' '
+
+            if prediction == labels[q]:
+                accuracy += 1
+
+        print('실제값: ', gt)
+        print('예측값: ', output)
 
 
 def main():
-    rnn = MyRNN(data, 100, 25)
-    rnn.train(10000)
-
-    response = rnn.predict('나라', 50)
-    print(response)
+    hidden_size = 25
+    lstm = LSTM(input_size=vocab_size+hidden_size, hidden_size=hidden_size, output_size=vocab_size, num_epochs=1000, learning_rate=0.05)
+    train_X, train_y = tokens[:-1], tokens[1:]
+    lstm.train(train_X, train_y)
+    lstm.test(train_X, train_y)
 
 
 if __name__ == '__main__':
